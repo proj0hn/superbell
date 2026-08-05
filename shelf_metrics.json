@@ -1,0 +1,12 @@
+{
+  "model": "superbell_shelf.pt",
+  "val_images": 178,
+  "mAP50": 0.84,
+  "mAP50_95": 0.619,
+  "best": {
+    "conf": 0.2,
+    "cAcc": 0.337,
+    "MAE": 1.893,
+    "RMSE": 2.777
+  }
+}
