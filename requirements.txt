@@ -1,5 +1,30 @@
-streamlit>=1.32
-ultralytics>=8.3
-opencv-python-headless
-pillow
-pandas
+# 버전 고정 (2026-08-08) — `import cv2` ImportError 대응
+#
+#   원인: 전부 무핀이라 재빌드가 최신본을 받아갔고, OpenCV가 4.x → 5.0.0.93(메이저 신규)으로
+#         올라가면서 cv2 임포트가 깨졌습니다. 배포 환경은 Python 3.14입니다.
+#
+#   · opencv 4.12.0.88(13번 노트북 E-1이 기록한 로컬 동작 버전)은 Python 3.14에 설치할 수 없습니다
+#     — numpy<2.3을 요구하는데 cp314용 numpy는 2.5부터 존재합니다. 그래서 4.x 중 3.14에서
+#     설치 가능한 가장 가까운 4.13.0.92로 맞췄습니다.
+#   · opencv 두 배포판을 같은 버전으로 함께 고정합니다 — ultralytics가 opencv-python(비headless)을
+#     의존성으로 끌어오기 때문에, headless만 고정하면 두 배포판 버전이 어긋나 cv2가 깨집니다.
+#     비headless가 요구하는 libGL은 packages.txt의 libgl1이 제공합니다.
+#   · streamlit은 해석 검증을 통과한 현재 최신 1.61.1로 고정합니다(로컬 동작본은 1.59.2였고
+#     그쪽도 문제는 없어 보이지만, 실제로 해석을 확인한 조합을 씁니다).
+#   · numpy는 고정하지 않습니다(3.14에서는 2.5.x가 유일한 선택지).
+#   · torch는 CPU 전용 휠 — 기본 설치는 CUDA 빌드라 용량·메모리를 크게 잡아먹습니다.
+#     추론은 어차피 CPU에서 돌아가므로 기능 차이는 없습니다.
+#
+#   검증: Linux(manylinux) · Python 3.14 대상 의존성 해석 통과 (pip --dry-run, 64개 패키지)
+#         → numpy 2.5.1 · watchdog 6.0.0 으로 충돌 없이 확정됨
+
+--extra-index-url https://download.pytorch.org/whl/cpu
+
+streamlit==1.61.1
+ultralytics==8.4.100
+torch==2.13.0+cpu
+torchvision==0.28.0+cpu
+opencv-python==4.13.0.92
+opencv-python-headless==4.13.0.92
+pillow==12.3.0
+pandas==2.3.3

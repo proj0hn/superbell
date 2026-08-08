@@ -53,7 +53,10 @@ st.set_page_config(page_title="SuperBell — 재고 정합성 자동 점검",
 # ──────────────────────────────────────────────────────────────
 # 모델 로딩 (경로별로 1회만)
 # ──────────────────────────────────────────────────────────────
-@st.cache_resource
+# max_entries=1 — 메모리 1GB 한도를 지키기 위해 모델은 한 번에 하나만 상주시킨다.
+# 탭을 오갈 때 다른 모드 모델이 밀려나 재로딩되지만(수 초), 두 모델 동시 상주로
+# 한도를 넘겨 앱이 통째로 죽는 것보다 낫다.
+@st.cache_resource(max_entries=1)
 def load_model(path: str):
     return YOLO(path)
 
@@ -86,7 +89,11 @@ def pick_image(key: str, label: str, sample_dir: Path):
     """업로드 위젯 + 샘플 버튼. 고른 이미지를 세션에 담아 돌려준다."""
     up = st.file_uploader(label, type=["jpg", "jpeg", "png"], key=f"up_{key}")
     if up:
-        st.session_state[f"img_{key}"] = Image.open(up).convert("RGB")
+        im = Image.open(up).convert("RGB")
+        # 추론은 어차피 imgsz=640으로 리사이즈되므로, 원본 고해상도를 세션에 그대로
+        # 들고 있을 이유가 없다. 폰 카메라 사진(수천만 화소)이 메모리를 밀어내는 것을 막는다.
+        im.thumbnail((1600, 1600))
+        st.session_state[f"img_{key}"] = im
 
     samples = sorted(sample_dir.glob("*.jpg")) if sample_dir.exists() else []
     if samples:
@@ -180,9 +187,6 @@ with tab1:
         st.error(f"모델 파일을 찾을 수 없습니다: {INTAKE_WEIGHTS}")
         st.stop()
 
-    model1 = load_model(wpath)
-    names1 = model1.names
-
     conf = st.slider("신뢰도(confidence) 임계값", 0.10, 0.90, CONF_INTAKE, 0.05,
                      key="conf_intake",
                      help="평가셋에서 개수 오차(MAE)가 최소였던 값이 기본값입니다. "
@@ -191,6 +195,10 @@ with tab1:
     if img1 is None:
         st.info("이미지를 업로드하거나 위의 샘플 버튼을 눌러주세요.")
     else:
+        # 모델은 실제로 셀 이미지가 정해진 뒤에 올린다 (st.tabs는 두 탭 코드를 항상 실행하므로,
+        # 여기서 올리지 않으면 모드②를 쓰지 않는 사용자도 모델 2개를 메모리에 얹게 된다).
+        model1 = load_model(wpath)
+        names1 = model1.names
         res1, el1 = predict(model1, img1, conf)
         show_detection(img1, res1, el1, conf)
 
@@ -279,9 +287,6 @@ with tab2:
             "그동안 **모드①(입고 검수 대조)** 은 완전히 동작합니다."
         )
     else:
-        model2 = load_model(wpath2)
-        names2 = model2.names
-
         conf = st.slider("신뢰도(confidence) 임계값", 0.10, 0.90, CONF_SHELF, 0.05,
                          key="conf_shelf",
                          help="매대는 상품이 작고 겹쳐 보여 검수대보다 낮은 임계값에서 "
@@ -300,6 +305,8 @@ with tab2:
         if mode.startswith("기준 사진"):
             imgb = pick_image("shelf_base", "기준(가득 찬) 매대 사진", Path("samples/shelf"))
             if imgb is not None:
+                model2 = load_model(wpath2)
+                names2 = model2.names
                 resb, _ = predict(model2, imgb, conf)
                 base_counts = counts_of(resb, names2)
                 c1, c2 = st.columns([1, 2])
@@ -312,6 +319,8 @@ with tab2:
         if img2 is None:
             st.info("점검할 매대 사진을 올리거나 샘플 버튼을 눌러주세요.")
         else:
+            model2 = load_model(wpath2)
+            names2 = model2.names
             res2, el2 = predict(model2, img2, conf)
             show_detection(img2, res2, el2, conf)
             now_counts = counts_of(res2, names2)
