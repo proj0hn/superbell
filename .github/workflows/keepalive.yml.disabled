@@ -1,0 +1,56 @@
+# ⛔ 현재 비활성 상태입니다 (확장자가 .disabled 이므로 GitHub Actions가 실행하지 않습니다).
+#
+# 켜는 법 · 끄는 법 · 원래 왜 실패했는지는 아래 문서를 보세요:
+#   docs/KEEPALIVE_재활성화_가이드.md
+#
+# 아래 내용은 2026-08-17에 버그를 고친 최종본입니다.
+# 재활성화할 때는 파일 이름을 keepalive.yml 로 바꾸기만 하면 됩니다 (내용 수정 불필요).
+#
+# ── 원래 버그 (2026-08-08 ~ 08-17) ────────────────────────────────────────
+#   구버전 마지막 줄:  curl -sSL ... "$URL/"
+#   Streamlit Community Cloud의 루트(/)는 세션 쿠키 리다이렉트 루프를 돌기 때문에
+#   -L(리다이렉트 따라가기)이 50회 한도에 걸려 curl이 exit code 47을 반환합니다.
+#   GitHub Actions의 run: 블록은 `bash -e`로 실행되므로 그 줄에서 잡이 즉시 중단 →
+#   "All jobs have failed". 정작 헬스체크(/healthz)는 200 OK였고 앱은 정상이었습니다.
+#   → 즉 '앱이 죽은 것'이 아니라 '핑 스크립트가 죽은 것'이었습니다.
+# ─────────────────────────────────────────────────────────────────────────
+
+name: keepalive
+
+on:
+  schedule:
+    # 6시간마다 (UTC 기준 00:17 / 06:17 / 12:17 / 18:17)
+    # 정각은 러너가 몰려 지연되므로 17분에 실행합니다.
+    - cron: "17 */6 * * *"
+  workflow_dispatch: {}
+
+# 스케줄 실행이 겹치지 않게 (러너 지연 시 중복 방지)
+concurrency:
+  group: keepalive
+  cancel-in-progress: false
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Ping app
+        env:
+          URL: https://superbell-auto-counter.streamlit.app
+        run: |
+          set -uo pipefail   # ★ -e 는 일부러 빼둡니다. 판정은 마지막 test 한 줄로만 합니다.
+
+          # 1) 헬스체크 — 이것이 유일한 성공/실패 판정 기준입니다.
+          #    Streamlit이 기본 제공하는 엔드포인트로 {"status":"ok"} 를 돌려줍니다.
+          #    리다이렉트가 없으므로 -L 을 쓰지 않습니다.
+          code=$(curl -sS -o /tmp/body -w "%{http_code}" --max-time 90 "$URL/healthz" || echo "000")
+          echo "healthz: $code / $(cat /tmp/body 2>/dev/null)"
+
+          # 2) 앱 본문도 한 번 열어 실제 트래픽으로 기록되게 합니다.
+          #    ★ -L 을 쓰지 않고(--max-redirs 3) 실패해도 무시합니다(|| true).
+          #    루트는 303 리다이렉트를 반환하는 것이 '정상'입니다 — 200을 기대하면 안 됩니다.
+          curl -sS -o /dev/null --max-redirs 3 -w "root: %{http_code} (303이면 정상)\n" \
+               --max-time 90 "$URL/" || true
+
+          # 3) 최종 판정 — healthz가 200일 때만 성공.
+          test "$code" = "200"
